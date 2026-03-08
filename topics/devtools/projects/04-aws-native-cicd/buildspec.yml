@@ -1,0 +1,113 @@
+version: 0.2
+
+env:
+  shell: bash
+  variables:
+    AWS_REGION: ap-northeast-1
+  secrets-manager:
+    GITHUB_TOKEN: cicd/github-token
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 18
+      docker: 23
+    commands:
+      - echo "Starting install phase at $(date)"
+      # 安装最新 AWS CLI
+      - pip install awscli --upgrade --user
+      - aws --version
+      
+  pre_build:
+    commands:
+      - echo "Starting pre-build phase at $(date)"
+      - echo "Environment=$ENVIRONMENT, Region=$AWS_REGION"
+      
+      # 登录 ECR
+      - echo "Logging in to Amazon ECR..."
+      - aws ecr get-login-password --region $AWS_REGION | 
+        docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+      
+      # 设置镜像标签
+      - REPOSITORY_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$IMAGE_REPO_NAME
+      - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+      - IMAGE_TAG=${COMMIT_HASH:=latest}
+      - echo "Repository URI: $REPOSITORY_URI"
+      - echo "Image Tag: $IMAGE_TAG"
+      
+      # 代码质量检查
+      - cd app
+      - npm ci --include=dev
+      - npm run lint
+      
+  build:
+    commands:
+      - echo "Starting build phase at $(date)"
+      
+      # 运行测试
+      - echo "Running tests..."
+      - npm test
+      
+      # 构建 Docker 镜像
+      - echo "Building Docker image..."
+      - docker build 
+        --build-arg NODE_ENV=$ENVIRONMENT 
+        -t $REPOSITORY_URI:latest 
+        -t $REPOSITORY_URI:$IMAGE_TAG 
+        -f Dockerfile 
+        .
+      
+      # 镜像安全扫描
+      - echo "Scanning Docker image with Trivy..."
+      # - trivy image --exit-code 1 --severity HIGH,CRITICAL $REPOSITORY_URI:$IMAGE_TAG || true
+      
+  post_build:
+    commands:
+      - echo "Starting post-build phase at $(date)"
+      
+      # 推送镜像到 ECR
+      - echo "Pushing Docker image..."
+      - docker push $REPOSITORY_URI:latest
+      - docker push $REPOSITORY_URI:$IMAGE_TAG
+      
+      # 生成 imagedefinitions.json 用于 ECS 部署
+      - printf '[{"name":"app","imageUri":"%s"}]' 
+        $REPOSITORY_URI:$IMAGE_TAG > ../imagedefinitions.json
+      
+      # 记录构建信息
+      - echo "Build completed at $(date)"
+      - echo "Image URI: $REPOSITORY_URI:$IMAGE_TAG"
+
+artifacts:
+  files:
+    - imagedefinitions.json
+  discard-paths: yes
+
+reports:
+  # 测试报告
+  test-reports:
+    files:
+      - 'app/coverage/junit.xml'
+    file-format: JUNITXML
+    base-directory: '.'
+  
+  # 覆盖率报告
+  coverage:
+    files:
+      - 'app/coverage/clover.xml'
+    file-format: CLOVERXML
+    base-directory: '.'
+
+cache:
+  paths:
+    # 缓存 npm 依赖
+    - 'app/node_modules/**/*'
+    - '/root/.npm/**/*'
+    # 缓存 Docker 层（需自定义镜像）
+    # - '/var/lib/docker/**/*'
+
+# 构建日志设置
+logs:
+  cloudwatch-logs:
+    group-name: /aws/codebuild/aws-native-cicd
+    stream-name: $ENVIRONMENT/$CODEBUILD_BUILD_ID

@@ -1,0 +1,17 @@
+{
+  "body": "{}",
+  "resource": "/{proxy+}",
+  "path": "/health",
+  "httpMethod": "GET",
+  "headers": {},
+  "queryStringParameters": null,
+  "pathParameters": {
+    "proxy": "health"
+  },
+  "stageVariables": null,
+  "requestContext": {
+    "accountId": "123456789012",
+    "apiId": "test-api",
+    "stage": "test"
+  }
+}

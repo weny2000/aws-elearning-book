@@ -1,0 +1,23 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.11
+    commands:
+      - pip install aws-sam-cli pytest pytest-cov flake8
+
+  pre_build:
+    commands:
+      - flake8 src/ --count --select=E9,F63,F7,F82
+
+  build:
+    commands:
+      - sam build
+      - pytest tests/unit/ -v --cov=src --cov-report=xml
+      - sam package --output-template-file packaged.yaml --s3-bucket $ARTIFACT_BUCKET
+
+artifacts:
+  files:
+    - packaged.yaml
+    - template.yaml

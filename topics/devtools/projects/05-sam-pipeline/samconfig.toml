@@ -1,0 +1,19 @@
+version = 0.1
+
+[default.build.parameters]
+cached = true
+
+[default.deploy.parameters]
+capabilities = "CAPABILITY_IAM CAPABILITY_AUTO_EXPAND"
+confirm_changeset = true
+resolve_s3 = true
+
+[dev.deploy.parameters]
+stack_name = "sam-pipeline-dev"
+region = "ap-northeast-1"
+parameter_overrides = ["Environment=dev", "LogLevel=DEBUG"]
+
+[prod.deploy.parameters]
+stack_name = "sam-pipeline-prod"
+region = "ap-northeast-1"
+parameter_overrides = ["Environment=prod", "LogLevel=WARN"]
