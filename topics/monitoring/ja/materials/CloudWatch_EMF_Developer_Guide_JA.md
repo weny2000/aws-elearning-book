@@ -1,54 +1,54 @@
-# CloudWatch Embedded Metric Format (EMF) Developer Guide
+# CloudWatch Embedded Metric Format (EMF) 開発ガイド
 
-> High-performance, low-cost CloudWatch metrics collection solution for developers
-
----
-
-## Table of Contents
-
-1. [EMF Overview](#1-emf-overview)
-2. [EMF Format Specification](#2-emf-format-specification)
-3. [Language Implementations](#3-language-implementations)
-4. [Lambda Integration](#4-lambda-integration)
-5. [Container Integration](#5-container-integration)
-6. [Advanced Usage Patterns](#6-advanced-usage-patterns)
-7. [Cost Optimization Strategies](#7-cost-optimization-strategies)
+> 開発者向けの高性能かつ低コストな CloudWatch メトリクス収集ソリューション
 
 ---
 
-## 1. EMF Overview
+## 目次
 
-### 1.1 What is EMF
+1. [EMF 概要](#1-emf-概要)
+2. [EMF フォーマット仕様](#2-emf-フォーマット仕様)
+3. [各言語実装](#3-各言語実装)
+4. [Lambda との統合](#4-lambda-との統合)
+5. [コンテナとの統合](#5-コンテナとの統合)
+6. [高度な使用パターン](#6-高度な使用パターン)
+7. [コスト最適化戦略](#7-コスト最適化戦略)
 
-Embedded Metric Format (EMF) is a JSON specification that allows CloudWatch metrics to be embedded within structured log events. CloudWatch Logs automatically extracts these metrics without requiring the PutMetric API.
+---
+
+## 1. EMF 概要
+
+### 1.1 EMF とは
+
+Embedded Metric Format (EMF) は JSON 仕様であり、CloudWatch メトリクスを構造化ログイベント内にログ形式で埋め込むことを可能にします。CloudWatch Logs はこれらのメトリクスを自動的に抽出するため、PutMetric API を使用する必要がありません。
 
 ```
-Traditional: Application → CloudWatch API (PutMetric) → CloudWatch Metrics
-EMF:         Application → CloudWatch Logs → Auto Extraction → CloudWatch Metrics
+従来方式: アプリケーション → CloudWatch API (PutMetric) → CloudWatch Metrics
+EMF 方式:  アプリケーション → CloudWatch Logs → 自動抽出 → CloudWatch Metrics
 
-Advantages:
-- High throughput: No API call limits
-- Low cost: Charged by log volume, typically cheaper than API calls
-- Low latency: Asynchronous processing, non-blocking
-- Rich context: Metrics associated with logs
+メリット:
+- 高スループット: API 呼び出し制限なし
+- 低コスト: ログ容量で課金され、通常は API 呼び出しより安価
+- 低遅延: 非同期処理でアプリケーションをブロックしない
+- 豊富なコンテキスト: メトリクスとログが関連付けられる
 ```
 
-### 1.2 EMF vs Traditional Methods
+### 1.2 EMF と従来方式の比較
 
-| Feature | PutMetric API | EMF |
-|---------|--------------|-----|
-| Latency | Synchronous | Asynchronous |
-| Cost | $0.01/1000 metrics | Log storage fees |
-| Limits | 150 TPS/region | Unlimited |
-| Dimensions | 10 | 9 |
-| Context | None | Full logs |
-| Implementation Complexity | Requires SDK | JSON only |
+| 特性 | PutMetric API | EMF |
+|------|--------------|-----|
+| 遅延 | 同期 | 非同期 |
+| コスト | $0.01/1000メトリクス | ログストレージ料金 |
+| 制限 | 150 TPS/リージョン | 制限なし |
+| ディメンション | 10個 | 9個 |
+| コンテキスト | なし | 完全なログ |
+| 実装複雑度 | SDK が必要 | JSON のみで可 |
 
-### 1.3 Architecture Diagram
+### 1.3 アーキテクチャ図
 
 ```mermaid
 flowchart LR
-    subgraph Application["Application"]
+    subgraph Application["アプリケーション"]
         EMF[EMF JSON Log]
     end
     
@@ -65,14 +65,14 @@ flowchart LR
     
     Application -->|stdout| CloudWatchLogs
     LogGroup --> EMFParser
-    EMFParser -->|Extract Metrics| CloudWatchMetrics
+    EMFParser -->|メトリクス抽出| CloudWatchMetrics
 ```
 
 ---
 
-## 2. EMF Format Specification
+## 2. EMF フォーマット仕様
 
-### 2.1 Basic Format
+### 2.1 基本フォーマット
 
 ```json
 {
@@ -104,21 +104,21 @@ flowchart LR
 }
 ```
 
-### 2.2 Field Descriptions
+### 2.2 フィールド説明
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `_aws` | Yes | EMF metadata root node |
-| `_aws.Timestamp` | Yes | Unix timestamp (milliseconds) |
-| `_aws.CloudWatchMetrics` | Yes | Metric definition array |
-| `Namespace` | Yes | Metric namespace |
-| `Dimensions` | No | Dimension combination array |
-| `Metrics` | Yes | Metric definition array |
-| `Name` | Yes | Metric name |
-| `Unit` | No | Unit (default: None) |
-| `StorageResolution` | No | 60 or 1 (high resolution) |
+| フィールド | 必須 | 説明 |
+|------|------|------|
+| `_aws` | はい | EMF メタデータルートノード |
+| `_aws.Timestamp` | はい | Unix タイムスタンプ（ミリ秒） |
+| `_aws.CloudWatchMetrics` | はい | メトリクス定義配列 |
+| `Namespace` | はい | メトリクスネームスペース |
+| `Dimensions` | いいえ | ディメンション組み合わせ配列 |
+| `Metrics` | はい | メトリクス定義配列 |
+| `Name` | はい | メトリクス名 |
+| `Unit` | いいえ | 単位（デフォルト：None） |
+| `StorageResolution` | いいえ | 60 または 1（高解像度） |
 
-### 2.3 Multi-Dimension Example
+### 2.3 マルチディメンション例
 
 ```json
 {
@@ -148,52 +148,52 @@ flowchart LR
 
 ---
 
-## 3. Language Implementations
+## 3. 各言語実装
 
 ### 3.1 Python (AWS Lambda Powertools)
 
 ```python
-# Install: pip install aws-lambda-powertools
+# インストール: pip install aws-lambda-powertools
 from aws_lambda_powertools import Logger, Metrics
 from aws_lambda_powertools.metrics import MetricUnit
 from aws_lambda_powertools.logging import correlation_paths
 
-# Initialize
+# 初期化
 metrics = Metrics(namespace="MyApplication")
 logger = Logger()
 
 @logger.inject_lambda_context
 @metrics.log_metrics(capture_cold_start_metric=True)
 def lambda_handler(event, context):
-    # Add dimensions
+    # ディメンション追加
     metrics.add_dimension(name="ServiceName", value="UserService")
     metrics.add_dimension(name="Environment", value="Production")
     
-    # Record metrics
+    # メトリクス記録
     metrics.add_metric(name="SuccessfulRequests", unit=MetricUnit.Count, value=1)
     metrics.add_metric(name="ProcessingLatency", unit=MetricUnit.Milliseconds, value=100)
     
-    # Log (auto-correlated)
+    # ログ記録（自動関連付け）
     logger.info("Processing request", extra={"request_id": "abc-123"})
     
     return {"statusCode": 200}
 
-# Custom EMF output
+# カスタム EMF 出力
 from aws_lambda_powertools.metrics import Metrics, MetricUnit
 
 metrics = Metrics()
 
 @metrics.log_metrics
 def handler(event, context):
-    # High resolution metrics
+    # 高解像度メトリクス
     metrics.add_metric(
         name="APICallLatency",
         unit=MetricUnit.Milliseconds,
         value=45,
-        resolution=1  # High resolution (1 second)
+        resolution=1  # 高解像度（1秒）
     )
     
-    # Multi-dimension
+    # マルチディメンション
     metrics.add_dimension(name="Region", value="ap-northeast-1")
     metrics.add_dimension(name="AZ", value="ap-northeast-1a")
     
@@ -203,31 +203,31 @@ def handler(event, context):
 ### 3.2 Node.js
 
 ```javascript
-// Using aws-embedded-metrics library
+// aws-embedded-metrics ライブラリを使用
 // npm install aws-embedded-metrics
 
 const { metricScope, Unit } = require('aws-embedded-metrics');
 
 exports.handler = metricScope(metrics => async (event, context) => {
-    // Set dimensions
+    // ディメンション設定
     metrics.setNamespace('MyApplication');
     metrics.setProperty('RequestId', context.awsRequestId);
     metrics.setProperty('Version', '1.0.0');
     
-    // Set default dimensions
+    // デフォルトディメンション設定
     metrics.putDimensions({ ServiceName: 'OrderService' });
     
-    // Record metrics
+    // メトリクス記録
     metrics.putMetric('ProcessingTime', 100, Unit.Milliseconds);
     metrics.putMetric('SuccessCount', 1, Unit.Count);
     
-    // Custom properties
+    // カスタム属性
     metrics.setProperty('UserId', event.userId);
     
     return { statusCode: 200 };
 });
 
-// Native implementation (no dependencies)
+// ネイティブ実装（依存関係なし）
 const EMF_OUTPUT = process.env.AWS_EXECUTION_ENV && process.env.AWS_EXECUTION_ENV.includes('AWS_Lambda');
 
 function logEMF(metrics) {
@@ -254,7 +254,7 @@ function logEMF(metrics) {
 ### 3.3 Java
 
 ```java
-// Using aws-embedded-metrics-java
+// aws-embedded-metrics-java を使用
 // <dependency>
 //     <groupId>software.amazon.cloudwatchlogs</groupId>
 //     <artifactId>aws-embedded-metrics</artifactId>
@@ -271,23 +271,23 @@ public class Handler implements RequestHandler<Map<String, Object>, String> {
     public String handleRequest(Map<String, Object> event, Context context) {
         MetricsLogger metrics = new MetricsLogger();
         
-        // Set namespace
+        // ネームスペース設定
         metrics.setNamespace("MyApplication");
         
-        // Set dimensions
+        // ディメンション設定
         metrics.putDimensions(DimensionSet.of(
             "ServiceName", "OrderService",
             "Environment", "Production"
         ));
         
-        // Record metrics
+        // メトリクス記録
         metrics.putMetric("ProcessingLatency", 100, Unit.MILLISECONDS);
         metrics.putMetric("RequestCount", 1, Unit.COUNT);
         
-        // Custom properties
+        // カスタム属性
         metrics.putProperty("RequestId", context.getAwsRequestId());
         
-        // Flush (optional in Lambda)
+        // フラッシュ（Lambda ではオプション）
         metrics.flush();
         
         return "Success";
@@ -309,7 +309,7 @@ import (
     "github.com/aws/aws-lambda-go/lambda"
 )
 
-// EMF struct
+// EMF 構造体
 type EMF struct {
     AWS      AWSMetadata     `json:"_aws"`
     Metadata map[string]interface{}
@@ -358,7 +358,7 @@ func logEMF(namespace string, dimensions map[string]string, metrics map[string]i
         Metadata: make(map[string]interface{}),
     }
     
-    // Merge dimensions and metrics
+    // ディメンションとメトリクスをマージ
     for k, v := range dimensions {
         emf.Metadata[k] = v
     }
@@ -393,9 +393,9 @@ func main() {
 
 ---
 
-## 4. Lambda Integration
+## 4. Lambda との統合
 
-### 4.1 Lambda Powertools Best Practices
+### 4.1 Lambda Powertools ベストプラクティス
 
 ```python
 from aws_lambda_powertools import Logger, Metrics, Tracer
@@ -403,7 +403,7 @@ from aws_lambda_powertools.metrics import MetricUnit
 from aws_lambda_powertools.logging import correlation_paths
 from aws_lambda_powertools.utilities.typing import LambdaContext
 
-# Initialize tools
+# ツール初期化
 tracer = Tracer()
 logger = Logger()
 metrics = Metrics()
@@ -416,17 +416,17 @@ metrics = Metrics()
 )
 def handler(event: dict, context: LambdaContext):
     """
-    Complete Lambda handler example
+    完全な Lambda ハンドラーの例
     """
     try:
-        # Add request-specific dimensions
+        # リクエスト固有のディメンション追加
         metrics.add_dimension(name="Operation", value=event.get('operation', 'unknown'))
         
-        # Business logic
+        # ビジネスロジック
         with tracer.provider.in_subsegment('## business_logic'):
             result = process_request(event)
         
-        # Success metrics
+        # 成功メトリクス
         metrics.add_metric(name="SuccessCount", unit=MetricUnit.Count, value=1)
         metrics.add_metric(name="ProcessingTime", unit=MetricUnit.Milliseconds, 
                           value=result['duration_ms'])
@@ -437,7 +437,7 @@ def handler(event: dict, context: LambdaContext):
         }
         
     except Exception as e:
-        # Error metrics
+        # エラーメトリクス
         metrics.add_metric(name="ErrorCount", unit=MetricUnit.Count, value=1)
         logger.exception("Request failed")
         
@@ -447,11 +447,11 @@ def handler(event: dict, context: LambdaContext):
         }
 
 def process_request(event):
-    # Simulate processing
+    # 処理のシミュレーション
     import time
     start = time.time()
     
-    # Processing...
+    # 処理...
     time.sleep(0.1)
     
     return {
@@ -460,7 +460,7 @@ def process_request(event):
     }
 ```
 
-### 4.2 Lambda Layer Configuration
+### 4.2 Lambda レイヤー設定
 
 ```yaml
 # template.yaml
@@ -470,7 +470,7 @@ Transform: AWS::Serverless-2016-10-31
 Globals:
   Function:
     Layers:
-      # Lambda Powertools layer (Python)
+      # Lambda Powertools レイヤー (Python)
       - !Sub 'arn:aws:lambda:${AWS::Region}:017000801446:layer:AWSLambdaPowertoolsPythonV2:40'
     Environment:
       Variables:
@@ -491,11 +491,11 @@ Resources:
         - arm64
 ```
 
-### 4.3 Lambda Insights Integration
+### 4.3 Lambda Insights 統合
 
 ```python
-# Lambda Insights automatically collects system-level metrics
-# Just enable Lambda Insights layer
+# Lambda Insights はシステムレベルのメトリクスを自動収集
+# Lambda Insights レイヤーを有効化するだけ
 
 # template.yaml
 Resources:
@@ -505,7 +505,7 @@ Resources:
       Layers:
         # Lambda Powertools
         - !Sub 'arn:aws:lambda:${AWS::Region}:017000801446:layer:AWSLambdaPowertoolsPythonV2:40'
-        # Lambda Insights (auto-added)
+        # Lambda Insights（自動追加）
         - !Sub 'arn:aws:lambda:${AWS::Region}:580247275435:layer:LambdaInsightsExtension:14'
       Policies:
         - CloudWatchLambdaInsightsExecutionRolePolicy
@@ -513,27 +513,27 @@ Resources:
 
 ---
 
-## 5. Container Integration
+## 5. コンテナとの統合
 
 ### 5.1 ECS/Fargate EMF Agent
 
 ```dockerfile
-# Dockerfile - includes CloudWatch Agent
+# Dockerfile - CloudWatch Agent 含む
 FROM python:3.11-slim
 
-# Install CloudWatch Agent
+# CloudWatch Agent インストール
 RUN apt-get update && apt-get install -y wget && \
     wget https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb && \
     dpkg -i amazon-cloudwatch-agent.deb
 
-# Copy application
+# アプリケーションコピー
 COPY app.py /app/
 WORKDIR /app
 
-# CloudWatch Agent configuration
+# CloudWatch Agent 設定
 COPY cwagent-config.json /opt/aws/amazon-cloudwatch-agent/etc/
 
-# Startup script
+# 起動スクリプト
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
@@ -559,14 +559,14 @@ ENTRYPOINT ["/entrypoint.sh"]
 #!/bin/bash
 # entrypoint.sh
 
-# Start CloudWatch Agent
+# CloudWatch Agent 起動
 /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ecs -c file:/opt/aws/amazon-cloudwatch-agent/etc/cwagent-config.json -s &
 
-# Start application
+# アプリケーション起動
 exec python app.py
 ```
 
-### 5.2 EKS with Fluent Bit
+### 5.2 EKS と Fluent Bit
 
 ```yaml
 # fluent-bit-config.yaml
@@ -603,12 +603,12 @@ data:
 
 ---
 
-## 6. Advanced Usage Patterns
+## 6. 高度な使用パターン
 
-### 6.1 Custom Metric Aggregation
+### 6.1 カスタムメトリクス集計
 
 ```python
-# Batch metrics collection and aggregation
+# バッチメトリクス収集と集計
 from collections import defaultdict
 import time
 
@@ -627,7 +627,7 @@ class EMFBatchCollector:
         self.metrics_buffer[name]['values'].append(value)
         self.metrics_buffer[name]['unit'] = unit
         
-        # Check if flush needed
+        # フラッシュ要否チェック
         if time.time() - self.last_flush > self.flush_interval:
             self.flush()
     
@@ -635,14 +635,14 @@ class EMFBatchCollector:
         if not self.metrics_buffer:
             return
         
-        # Calculate statistics
+        # 統計値計算
         emf_metrics = []
         emf_values = {}
         
         for name, data in self.metrics_buffer.items():
             values = data['values']
             
-            # Basic statistics
+            # 基本統計
             emf_values[f"{name}_count"] = len(values)
             emf_values[f"{name}_sum"] = sum(values)
             emf_values[f"{name}_min"] = min(values)
@@ -655,7 +655,7 @@ class EMFBatchCollector:
                 {"Name": f"{name}_max", "Unit": data['unit']},
             ])
         
-        # Output EMF
+        # EMF 出力
         emf = {
             "_aws": {
                 "Timestamp": int(time.time() * 1000),
@@ -671,12 +671,12 @@ class EMFBatchCollector:
         
         print(json.dumps(emf))
         
-        # Clear buffer
+        # バッファクリア
         self.metrics_buffer.clear()
         self.last_flush = time.time()
 ```
 
-### 6.2 Distributed Tracing Integration
+### 6.2 分散トレーシング統合
 
 ```python
 from aws_lambda_powertools import Logger, Metrics, Tracer
@@ -689,18 +689,18 @@ tracer = Tracer()
 @metrics.log_metrics
 @tracer.capture_lambda_handler
 def handler(event, context):
-    # Get trace information
+    # トレース情報取得
     trace_id = tracer.get_trace_id()
     segment = tracer.get_segment()
     
-    # Add trace dimension
+    # トレースディメンション追加
     metrics.add_dimension(name="TraceId", value=trace_id)
     
-    # Business logic
+    # ビジネスロジック
     with tracer.provider.in_subsegment('## process'):
         process_data(event)
     
-    # Record metrics
+    # メトリクス記録
     metrics.add_metric(name="RequestLatency", unit=MetricUnit.Milliseconds, value=100)
     
     return {"statusCode": 200}
@@ -708,9 +708,9 @@ def handler(event, context):
 
 ---
 
-## 7. Cost Optimization Strategies
+## 7. コスト最適化戦略
 
-### 7.1 Sampling Strategy
+### 7.1 サンプリング戦略
 
 ```python
 import random
@@ -721,16 +721,16 @@ class SampledMetrics:
     
     def add_metric(self, name, value, unit='Count'):
         if random.random() < self.sample_rate:
-            # Record metric
-            log_emf(name, value * (1/self.sample_rate), unit)  # Adjust value
+            # メトリクス記録
+            log_emf(name, value * (1/self.sample_rate), unit)  # 値調整
 
-# Usage
-metrics = SampledMetrics(sample_rate=0.1)  # 10% sampling
+# 使用
+metrics = SampledMetrics(sample_rate=0.1)  # 10% サンプリング
 for request in requests:
     metrics.add_metric("RequestCount", 1)
 ```
 
-### 7.2 Batch Output
+### 7.2 バッチ出力
 
 ```python
 import json
@@ -751,21 +751,21 @@ class EMFBatchOutput:
         if not self.batch:
             return
         
-        # Batch output (reduce log calls)
+        # バッチ出力（ログ呼び出し削減）
         for record in self.batch:
             print(json.dumps(record))
         
         self.batch.clear()
 ```
 
-### 7.3 Cost Comparison Calculator
+### 7.3 コスト比較計算機
 
 ```python
 """
-CloudWatch Metrics Cost Estimator
+CloudWatch メトリクスコスト見積もり
 
-PutMetric API Cost: $0.01 / 1,000 metrics
-EMF Cost: $0.50 / GB ingestion + $0.03 / GB storage(month)
+PutMetric API コスト: $0.01 / 1,000 メトリクス
+EMF コスト: $0.50 / GB 取り込み + $0.03 / GB ストレージ（月）
 """
 
 def calculate_cost_comparison(
@@ -774,22 +774,22 @@ def calculate_cost_comparison(
     emf_compression_ratio: float = 0.7
 ):
     """
-    Calculate PutMetric vs EMF cost comparison
+    PutMetric vs EMF のコスト比較を計算します
     """
-    # PutMetric API cost
+    # PutMetric API コスト
     putmetric_monthly = (metrics_per_day * 30 / 1000) * 0.01
     
-    # EMF cost (estimate)
+    # EMF コスト（概算）
     daily_data_gb = (metrics_per_day * avg_metric_size_bytes) / (1024**3)
     monthly_data_gb = daily_data_gb * 30 * emf_compression_ratio
     emf_ingestion_monthly = monthly_data_gb * 0.50
     emf_storage_monthly = monthly_data_gb * 0.03
     emf_total = emf_ingestion_monthly + emf_storage_monthly
     
-    print(f"Daily metrics: {metrics_per_day:,}")
-    print(f"PutMetric API monthly cost: ${putmetric_monthly:.2f}")
-    print(f"EMF monthly cost: ${emf_total:.2f}")
-    print(f"Savings: ${putmetric_monthly - emf_total:.2f} ({(1 - emf_total/putmetric_monthly)*100:.1f}%)")
+    print(f"日次メトリクス数: {metrics_per_day:,}")
+    print(f"PutMetric API 月次コスト: ${putmetric_monthly:.2f}")
+    print(f"EMF 月次コスト: ${emf_total:.2f}")
+    print(f"削減額: ${putmetric_monthly - emf_total:.2f} ({(1 - emf_total/putmetric_monthly)*100:.1f}%)")
     
     return {
         'putmetric': putmetric_monthly,
@@ -797,9 +797,9 @@ def calculate_cost_comparison(
         'savings': putmetric_monthly - emf_total
     }
 
-# Example
+# 例
 if __name__ == "__main__":
-    # High throughput scenario: 1 million metrics/day
+    # 高スループットシナリオ: 100万メトリクス/日
     calculate_cost_comparison(1_000_000)
 ```
 
