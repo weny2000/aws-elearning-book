@@ -1202,6 +1202,249 @@ deploy_production:
     - main
 ```
 
+### 5.3 AWS CodePipeline 企业级实践 ⭐ AWS-first
+
+在生产环境中，AWS 原生 CI/CD 方案（CodePipeline + CodeBuild + CodeDeploy）提供更紧密的 AWS 服务集成和更好的合规支持。
+
+```yaml
+# pipeline/template.yaml - AWS CodePipeline with SAM
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Production CI/CD Pipeline
+
+Parameters:
+  GitHubConnectionArn:
+    Type: String
+    Description: CodeStar Connection ARN
+
+Resources:
+  # S3 Artifact Bucket
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldArtifacts
+            Status: Enabled
+            ExpirationInDays: 30
+
+  # CodeBuild Project
+  BuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub ${AWS::StackName}-build
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: |
+          version: 0.2
+          phases:
+            install:
+              runtime-versions:
+                nodejs: 18
+              commands:
+                - npm ci
+            build:
+              commands:
+                - npm run lint
+                - npm run test:coverage
+                - sam build
+            post_build:
+              commands:
+                - sam package --output-template-file packaged.yaml --s3-bucket $ARTIFACT_BUCKET
+          artifacts:
+            files:
+              - packaged.yaml
+              - template.yaml
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:5.0
+        PrivilegedMode: true
+        EnvironmentVariables:
+          - Name: ARTIFACT_BUCKET
+            Value: !Ref ArtifactBucket
+
+  # CodePipeline
+  Pipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Sub ${AWS::StackName}-pipeline
+      RoleArn: !GetAtt PipelineRole.Arn
+      ArtifactStore:
+        Type: S3
+        Location: !Ref ArtifactBucket
+      Stages:
+        # Source Stage
+        - Name: Source
+          Actions:
+            - Name: GitHub_Source
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: CodeStarSourceConnection
+                Version: 1
+              Configuration:
+                ConnectionArn: !Ref GitHubConnectionArn
+                FullRepositoryId: myorg/myapp
+                BranchName: main
+              OutputArtifacts:
+                - Name: SourceCode
+
+        # Build Stage
+        - Name: Build
+          Actions:
+            - Name: Build_and_Test
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              Configuration:
+                ProjectName: !Ref BuildProject
+              InputArtifacts:
+                - Name: SourceCode
+              OutputArtifacts:
+                - Name: BuildArtifact
+
+        # Deploy to Dev
+        - Name: Deploy_Dev
+          Actions:
+            - Name: Deploy
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: 1
+              Configuration:
+                ActionMode: CREATE_UPDATE
+                StackName: !Sub ${AWS::StackName}-dev
+                TemplatePath: BuildArtifact::packaged.yaml
+                Capabilities: CAPABILITY_IAM CAPABILITY_AUTO_EXPAND
+              InputArtifacts:
+                - Name: BuildArtifact
+
+        # Approval for Production
+        - Name: Approval
+          Actions:
+            - Name: Manual_Approval
+              ActionTypeId:
+                Category: Approval
+                Owner: AWS
+                Provider: Manual
+                Version: 1
+              Configuration:
+                CustomData: Approve deployment to production?
+
+        # Deploy to Production
+        - Name: Deploy_Prod
+          Actions:
+            - Name: Deploy
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: 1
+              Configuration:
+                ActionMode: CREATE_UPDATE
+                StackName: !Sub ${AWS::StackName}-prod
+                TemplatePath: BuildArtifact::packaged.yaml
+                Capabilities: CAPABILITY_IAM CAPABILITY_AUTO_EXPAND
+              InputArtifacts:
+                - Name: BuildArtifact
+```
+
+### 5.4 CodeBuild 优化技巧
+
+```yaml
+# buildspec-optimized.yml
+version: 0.2
+
+# 并行构建 - 大幅减少总构建时间
+batch:
+  fast-fail: false
+  build-matrix:
+    - identifier: unit_tests
+      env:
+        compute-type: BUILD_GENERAL1_SMALL
+    - identifier: integration_tests
+      env:
+        compute-type: BUILD_GENERAL1_MEDIUM
+    - identifier: security_scan
+      env:
+        compute-type: BUILD_GENERAL1_SMALL
+
+env:
+  variables:
+    AWS_DEFAULT_REGION: ap-northeast-1
+  secrets-manager:
+    SONAR_TOKEN: prod/sonar:token
+    GITHUB_TOKEN: prod/github:token
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 18
+      python: 3.11
+    commands:
+      # 使用本地缓存加速
+      - if [ -d node_modules ]; then echo "Cache hit"; else npm ci; fi
+
+  pre_build:
+    commands:
+      - npm run lint
+      - npm run type-check
+
+  build:
+    commands:
+      - npm run test:ci
+      - npm run build:production
+
+  post_build:
+    commands:
+      - npm run security:scan
+      - echo Build completed
+
+reports:
+  # 测试报告
+  test-reports:
+    files:
+      - 'reports/junit.xml'
+    file-format: JUNITXML
+  
+  # 覆盖率报告
+  coverage:
+    files:
+      - 'coverage/clover.xml'
+    file-format: CLOVERXML
+
+cache:
+  paths:
+    # 本地缓存关键路径
+    - 'node_modules/**/*'
+    - '/root/.npm/**/*'
+    # Docker 层缓存（需要自定义镜像）
+    - '/var/lib/docker/**/*'
+
+# 构建超时设置（默认60分钟）
+timeout: 30
+```
+
+### 5.5 CI/CD 方案对比
+
+| 特性 | GitHub Actions | GitLab CI | AWS CodePipeline |
+|------|---------------|-----------|------------------|
+| **定价模式** | 按分钟计费 | 按分钟计费 | 按流水线执行计费 |
+| **AWS 集成** | 需配置 OIDC/AWS 凭证 | 需配置 OIDC/AWS 凭证 | 原生 IAM 集成 |
+| **Secrets 管理** | GitHub Secrets | GitLab Variables | Secrets Manager |
+| **Artifacts** | 90天保留 | 默认30天 | S3 持久化 |
+| **合规性** | 需额外配置 | 需额外配置 | SOC/PCI 合规 |
+| **最佳场景** | 开源项目 | 自托管 GitLab | AWS 生产环境 |
+
+**建议**：在 AWS 生产环境中，优先使用 CodePipeline + CodeBuild 组合，获得最佳的原生集成体验和合规支持。
+
 ---
 
 ## 6. Kubernetes 与编排
@@ -1897,6 +2140,202 @@ module "eks" {
   }
 }
 ```
+
+### 10.3 AWS CDK 企业级实践 ⭐ AWS-first
+
+AWS CDK 是 AWS 原生的基础设施即代码解决方案，提供类型安全、IDE 支持和丰富的 AWS 服务集成。
+
+```typescript
+// lib/web-service-stack.ts
+import * as cdk from 'aws-cdk-lib';
+import * as ec2 from 'aws-cdk-lib/aws-ec2';
+import * as ecs from 'aws-cdk-lib/aws-ecs';
+import * as ecs_patterns from 'aws-cdk-lib/aws-ecs-patterns';
+import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import { Construct } from 'constructs';
+
+export interface WebServiceStackProps extends cdk.StackProps {
+  readonly environment: string;
+  readonly containerImage: string;
+  readonly desiredCount?: number;
+}
+
+export class WebServiceStack extends cdk.Stack {
+  public readonly serviceUrl: string;
+  public readonly clusterName: string;
+  
+  constructor(scope: Construct, id: string, props: WebServiceStackProps) {
+    super(scope, id, props);
+    
+    // VPC with best practices
+    const vpc = new ec2.Vpc(this, 'VPC', {
+      maxAzs: 2,
+      natGateways: props.environment === 'prod' ? 2 : 1,
+      subnetConfiguration: [
+        {
+          name: 'Public',
+          subnetType: ec2.SubnetType.PUBLIC,
+        },
+        {
+          name: 'Private',
+          subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
+        },
+      ],
+    });
+    
+    // Fargate service with Application Load Balancer
+    const fargateService = new ecs_patterns.ApplicationLoadBalancedFargateService(
+      this, 'Service', {
+        vpc,
+        taskImageOptions: {
+          image: ecs.ContainerImage.fromRegistry(props.containerImage),
+          containerPort: 8080,
+          enableLogging: true,
+        },
+        desiredCount: props.desiredCount ?? 2,
+        cpu: 512,
+        memoryLimitMiB: 1024,
+        platformVersion: ecs.FargatePlatformVersion.LATEST,
+        // Enable Circuit Breaker for automatic rollback
+        circuitBreaker: { rollback: true },
+      }
+    );
+    
+    // Auto scaling
+    if (props.environment === 'prod') {
+      const scaling = fargateService.service.autoScaleTaskCount({
+        minCapacity: 2,
+        maxCapacity: 20,
+      });
+      
+      scaling.scaleOnCpuUtilization('CpuScaling', {
+        targetUtilizationPercent: 70,
+        scaleInCooldown: cdk.Duration.seconds(60),
+        scaleOutCooldown: cdk.Duration.seconds(60),
+      });
+    }
+    
+    // CloudWatch Alarms
+    const highCpuAlarm = new cloudwatch.Alarm(this, 'HighCpu', {
+      metric: fargateService.service.metricCpuUtilization(),
+      threshold: 80,
+      evaluationPeriods: 3,
+      alarmDescription: `High CPU for ${props.environment}`,
+    });
+    
+    // Outputs
+    this.serviceUrl = fargateService.loadBalancer.loadBalancerDnsName;
+    this.clusterName = fargateService.cluster.clusterName;
+    
+    new cdk.CfnOutput(this, 'ServiceURL', {
+      value: this.serviceUrl,
+      description: 'Application Load Balancer URL',
+    });
+  }
+}
+```
+
+#### CDK Aspects - 横切关注点
+
+```typescript
+// aspects/security-aspect.ts
+import * as cdk from 'aws-cdk-lib';
+import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as sqs from 'aws-cdk-lib/aws-sqs';
+import * as sns from 'aws-cdk-lib/aws-sns';
+import { IConstruct } from 'constructs';
+
+export class SecurityAspect implements cdk.IAspect {
+  public visit(node: IConstruct): void {
+    // 强制 S3 加密
+    if (node instanceof s3.CfnBucket) {
+      if (!node.bucketEncryption) {
+        node.bucketEncryption = {
+          serverSideEncryptionConfiguration: [{
+            serverSideEncryptionByDefault: {
+              sseAlgorithm: 'AES256',
+            },
+          }],
+        };
+      }
+    }
+    
+    // 强制 SQS 加密
+    if (node instanceof sqs.CfnQueue) {
+      if (!node.kmsMasterKeyId) {
+        node.kmsMasterKeyId = 'alias/aws/sqs';
+      }
+    }
+    
+    // 强制 SNS 加密
+    if (node instanceof sns.CfnTopic) {
+      if (!node.kmsMasterKeyId) {
+        node.kmsMasterKeyId = 'alias/aws/sns';
+      }
+    }
+  }
+}
+
+// 应用 Aspect
+const app = new cdk.App();
+const stack = new WebServiceStack(app, 'WebService');
+cdk.Aspects.of(app).add(new SecurityAspect());
+```
+
+#### CDK Pipelines - 自我变异的 CI/CD
+
+```typescript
+// lib/pipeline-stack.ts
+import * as cdk from 'aws-cdk-lib';
+import * as pipelines from 'aws-cdk-lib/pipelines';
+import { Construct } from 'constructs';
+
+export class PipelineStack extends cdk.Stack {
+  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+    super(scope, id, props);
+    
+    const pipeline = new pipelines.CodePipeline(this, 'Pipeline', {
+      pipelineName: 'WebServicePipeline',
+      selfMutation: true, // 自我变异
+      
+      synth: new pipelines.CodeBuildStep('Synth', {
+        input: pipelines.CodePipelineSource.gitHub('myorg/myapp', 'main'),
+        commands: [
+          'npm ci',
+          'npm run build',
+          'npm run test',
+          'npx cdk synth',
+        ],
+      }),
+    });
+    
+    // Dev stage
+    pipeline.addStage(new WebServiceStage(this, 'Dev', {
+      environment: 'dev',
+    }));
+    
+    // Prod stage with manual approval
+    pipeline.addStage(new WebServiceStage(this, 'Prod', {
+      environment: 'prod',
+    }), {
+      pre: [new pipelines.ManualApprovalStep('ApproveProd')],
+    });
+  }
+}
+```
+
+#### IaC 方案对比
+
+| 特性 | Terraform | AWS CDK | CloudFormation |
+|------|-----------|---------|----------------|
+| **语言** | HCL | TypeScript/Python/Java | YAML/JSON |
+| **AWS 集成** | 需 provider | 原生 | 原生 |
+| **IDE 支持** | 中等 | 优秀 | 一般 |
+| **类型安全** | 否 | 是 | 否 |
+| **团队学习成本** | 中等 | 低（熟悉语言） | 低 |
+| **最佳场景** | 多云环境 | AWS 专用 | 简单资源 |
+
+**建议**：AWS 专用项目优先使用 CDK，获得最佳开发体验和类型安全。
 
 ---
 

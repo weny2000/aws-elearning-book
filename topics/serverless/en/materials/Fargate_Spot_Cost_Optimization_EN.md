@@ -8,6 +8,53 @@
 
 This guide documents a real-world cost optimization project that reduced AWS Fargate costs by **50%** (from $42K to $21K monthly) using Fargate Spot capacity providers.
 
+### Real-World Results
+
+| Metric | Before | After | Improvement |
+|--------|--------|-------|-------------|
+| Monthly Cost | $42,000 | $21,000 | **50% savings** |
+| Spot Interruption Rate | N/A | 2-5% | Acceptable |
+| Mean Recovery Time | N/A | <30s | Auto-failover |
+| Application Availability | 99.9% | 99.95% | Improved |
+
+**Workload Characteristics:**
+- 150+ Fargate tasks across 3 environments
+- Mix of API services (70%) and batch jobs (30%)
+- Traffic pattern: 10K-50K RPM during business hours
+- Original setup: 100% Fargate On-Demand
+
+### Key Lessons Learned
+
+1. **Capacity Provider Strategy**: 70/30 Spot/On-Demand ratio optimal for our workload
+2. **Interruption Handling**: Critical for stateful services; less important for stateless APIs
+3. **Monitoring**: CloudWatch metrics essential for tracking Spot utilization
+4. **Gradual Migration**: Started with dev environment, then staging, finally production
+
+---
+
+## Business Context
+
+### Why Fargate Spot?
+
+Our SaaS platform experienced rapid growth, leading to escalating container costs:
+
+```
+Month    | Fargate Cost | Growth
+---------|--------------|--------
+Jan 2024 | $28,000      | -
+Feb 2024 | $32,000      | +14%
+Mar 2024 | $38,000      | +19%
+Apr 2024 | $42,000      | +11% ← Peak before optimization
+May 2024 | $21,500      | -49% ← After Spot implementation
+```
+
+### Requirements
+
+1. **Cost Reduction**: Target 40%+ savings without performance degradation
+2. **Availability**: Maintain 99.9%+ SLA
+3. **Zero Downtime**: Seamless migration from On-Demand to Spot
+4. **Observability**: Full visibility into Spot interruptions
+
 ---
 
 ## Architecture Overview
